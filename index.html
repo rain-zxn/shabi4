@@ -17,23 +17,24 @@ const __$G=typeof globalThis!=="undefined"?globalThis:typeof window!=="undefined
 </script><script>
 (function(root){
   const E=typeof module==='object'?require('../vendor/ethers.umd.min.js'):root.ethers;
-  const C=Object.freeze({rpc:'https://rpc2.anubispace.org',chainId:6714,chainHex:'0x1a3a',ledger:'0x9E68F61E2615cc1D2C4a2D0026bFc1EBFdf68C1b',token:'0x4D1D808a081FdAc440703b3765FC61f8028C06B8',gate:'0xb975Fd9B03fF440d6a43a52A7F072154CB520a4B',clock:'0x6C5352E15A8327C3F44898FE220100Edc2989C58',ledgerImpl:'0x8241e968e3306055fa57cf654f2de74fb5e45919',gateImpl:'0x8131d7ad7471e82473d7c0d7b00c8c6314d4db99',implSlot:'0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc',explorer:'https://browser.anubispace.org',decimals:9});
+  const C=Object.freeze({rpc:'https://rpc2.anubispace.org',chainId:6714,chainHex:'0x1a3a',ledger:'0x9E68F61E2615cc1D2C4a2D0026bFc1EBFdf68C1b',token:'0x4D1D808a081FdAc440703b3765FC61f8028C06B8',gate:'0xb975Fd9B03fF440d6a43a52A7F072154CB520a4B',clock:'0x6C5352E15A8327C3F44898FE220100Edc2989C58',ledgerImpl:'0x8241e968e3306055fa57cf654f2de74fb5e45919',gateImpl:'0xcc45f1054a0f79ef0cf4bb2de618268177c84834',implSlot:'0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc',explorer:'https://browser.anubispace.org',decimals:9});
   const ledgerABI=new E.Interface(['function lgns() view returns(address)','function lgnsBurnGate() view returns(address)','function clock() view returns(address)','function depositsOpen() view returns(bool)','function minimumLgns() view returns(uint256)','function lgnsPowerRate() view returns(uint256)','function burnForPower(uint256)']);
-  const gateABI=new E.Interface(['function maximumLgns() view returns(uint256)','function minimumStake() view returns(uint256)','function dailyMaximumLgns() view returns(uint256)','function burnedLgnsToday() view returns(uint256)','function BURN_OPENS_AT() view returns(uint256)','function burnEpochOf(address) view returns(uint256)','function stakeOf(address) view returns(uint256)']);
+  const gateABI=new E.Interface(['function maximumLgns() view returns(uint256)','function minimumStake() view returns(uint256)','function dailyMaximumLgns() view returns(uint256)','function burnedLgnsToday() view returns(uint256)','function BURN_OPENS_AT() view returns(uint256)','function DAILY_OPENS_AFTER() view returns(uint256)','function burnEpochOf(address) view returns(uint256)','function stakeOf(address) view returns(uint256)']);
   const tokenABI=new E.Interface(['function decimals() view returns(uint8)','function balanceOf(address) view returns(uint256)','function allowance(address,address) view returns(uint256)']);
-  const clockABI=new E.Interface(['function currentEpoch() view returns(uint256)','function currentDay() view returns(uint256)','function dayEnd(uint256) view returns(uint256)']);
+  const clockABI=new E.Interface(['function currentEpoch() view returns(uint256)','function currentDay() view returns(uint256)','function dayStart(uint256) view returns(uint256)','function dayEnd(uint256) view returns(uint256)']);
   const same=(a,b)=>String(a).toLowerCase()===String(b).toLowerCase();
   function units(value){if(!/^\d+(\.\d{1,9})?$/.test(value.trim()))throw Error('请输入有效数量，最多 9 位小数');const n=E.parseUnits(value.trim(),9);if(n<=0n||n>E.MaxUint256)throw Error('请输入有效的正数数量');return n;}
   function left(max,used){return max>used?max-used:0n;}
-  function available(s,n){return !!s&&s.open&&s.timestamp>=s.opensAt&&s.rate>0n&&n>0n&&n>=s.minimum&&n<=s.maximum&&s.remaining>=n;}
-  function reason(s,n,who){if(!s)return '正在读取链上状态';if(!s.open||s.rate===0n)return '当前未开放';if(s.timestamp<s.opensAt)return '尚未到开放时间';if(n<=0n)return '请输入销毁数量';if(n<s.minimum)return '数量低于当前下限';if(n>s.maximum)return '数量高于当前上限';if(!who)return '请连接钱包';if(s.epoch>0n&&s.burnEpoch===s.epoch)return '本周期已参与';if(s.stake<s.minimumStake)return '有效质押不足';if(s.balance<n)return '黑丝余额不足';if(s.allowance<n)return '请先去 Helix 页面授权';if(s.remaining<n)return '暂无足够额度';if(s.gas===0n)return '手续费余额不足';return '';}
+  function openingTimes(timestamp,dayStart,dayEnd,offset,first){if(![timestamp,dayStart,dayEnd,offset,first].every(Number.isSafeInteger)||dayEnd<=dayStart||timestamp<dayStart||timestamp>=dayEnd||offset<0||offset>=dayEnd-dayStart)throw Error('链上开放时间无效');const dailyOpenAt=Math.max(first,dayStart+offset);return {dailyOpenAt,nextOpenAt:timestamp<dailyOpenAt?dailyOpenAt:Math.max(first,dayEnd+offset)};}
+  function available(s,n){return !!s&&s.open&&Number.isFinite(s.dailyOpenAt)&&s.timestamp>=Math.max(s.opensAt,s.dailyOpenAt)&&s.rate>0n&&n>0n&&n>=s.minimum&&n<=s.maximum&&s.remaining>=n;}
+  function reason(s,n,who){if(!s)return '正在读取链上状态';if(!s.open||s.rate===0n)return '当前未开放';if(s.timestamp<s.opensAt)return '尚未到开放时间';if(!Number.isFinite(s.dailyOpenAt)||s.timestamp<s.dailyOpenAt)return '今日尚未到开放时间';if(n<=0n)return '请输入销毁数量';if(n<s.minimum)return '数量低于当前下限';if(n>s.maximum)return '数量高于当前上限';if(!who)return '请连接钱包';if(s.epoch>0n&&s.burnEpoch===s.epoch)return '本周期已参与';if(s.stake<s.minimumStake)return '有效质押不足';if(s.balance<n)return '黑丝余额不足';if(s.allowance<n)return '请先去 Helix 页面授权';if(s.remaining<n)return '暂无足够额度';if(s.gas===0n)return '手续费余额不足';return '';}
   function burnTx(n){if(n<=0n)throw Error('数量必须大于零');return {to:C.ledger,data:ledgerABI.encodeFunctionData('burnForPower',[n]),value:'0x0'};}
-  const api={C,ledgerABI,gateABI,tokenABI,clockABI,same,units,left,available,reason,burnTx};if(typeof module==='object')module.exports=api;else root.BlackBurn=api;
+  const api={C,ledgerABI,gateABI,tokenABI,clockABI,same,units,left,openingTimes,available,reason,burnTx};if(typeof module==='object')module.exports=api;else root.BlackBurn=api;
 })(globalThis);
 
 </script><script>
 'use strict';
-const {C,ledgerABI,gateABI,tokenABI,clockABI,same,units,left,available,reason,burnTx}=BlackBurn;
+const {C,ledgerABI,gateABI,tokenABI,clockABI,same,units,left,openingTimes,available,reason,burnTx}=BlackBurn;
 const $=id=>document.getElementById(id);
 const request=new ethers.FetchRequest(C.rpc);request.timeout=10000;
 const rpc=new ethers.JsonRpcProvider(request,C.chainId,{batchMaxCount:40,cacheTimeout:0});
@@ -45,29 +46,31 @@ function clean(e){const m=e.reason||e.shortMessage||e.info?.error?.message||e.me
 function status(text){$('status').textContent=text;}
 function renderOpening(){
  if(!snapshot||Date.now()-snapshot.fetched>=15000){$('opening').textContent='额度开放时间：等待链上同步';$('countdown').textContent='';return;}
- const first=snapshot.timestamp<snapshot.opensAt,target=first?snapshot.opensAt:snapshot.nextReset;
+ const target=snapshot.nextOpenAt;
  if(!Number.isFinite(target)){$('opening').textContent='正在读取额度开放时间…';$('countdown').textContent='';return;}
  const date=new Date(target*1000).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
- $('opening').textContent=(first?'额度开放：':'下次额度重置：')+date+'（北京时间）';
+ $('opening').textContent='下次额度开放：'+date+'（北京时间）';
  const seconds=Math.max(0,Math.ceil(target-snapshot.timestamp-(Date.now()-snapshot.fetched)/1000));
  const h=String(Math.floor(seconds/3600)).padStart(2,'0'),m=String(Math.floor(seconds%3600/60)).padStart(2,'0'),s=String(seconds%60).padStart(2,'0');
- $('countdown').textContent=seconds?'倒计时 '+h+':'+m+':'+s:'已到时间，等待链上额度更新';
+ const daily=new Date((snapshot.dayStart+snapshot.dailyOffset)*1000).toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+ $('countdown').textContent=(seconds?'倒计时 '+h+':'+m+':'+s:'已到时间，等待链上额度更新')+' · 每日 '+daily+' 开放';
  if(!snapshot.open)$('countdown').textContent+=' · 当前暂停开放';
 }
 function render(){renderOpening();const n=nInput(),fresh=snapshot&&Date.now()-snapshot.fetched<15000;const why=fresh?reason(snapshot,n,account):'链上状态未就绪';$('buy').disabled=busy||!!pendingHash||!!why;$('connect').disabled=busy;$('amount').disabled=busy||!!pendingHash;$('notify').textContent=notifying?'关闭额度提醒':'开启额度响铃';$('eligibility').textContent=pendingHash?'交易待确认，请勿重复提交':why||'已授权，可以买入';if(snapshot){$('preview').textContent='预计 '+fmt(n*snapshot.rate/10n**9n,18)+' 算力 · 每次 '+fmt(snapshot.minimum)+'—'+fmt(snapshot.maximum)+' 黑丝';}}
 async function call(to,abi,name,args,tag){return abi.decodeFunctionResult(name,await rpc.send('eth_call',[{to,data:abi.encodeFunctionData(name,args)},tag]))[0];}
 async function load(){if(inFlight)return inFlight;inFlight=(async()=>{const v=version,who=account;try{
  const block=await rpc.send('eth_getBlockByNumber',['latest',false]),tag=block.number;
- const [chain,impl,gateImpl,token,gate,clock,open,minimum,rate,maximum,minimumStake,dailyCap,used,opensAt,epoch,decimals,day]=await Promise.all([
+ const [chain,impl,gateImpl,token,gate,clock,open,minimum,rate,maximum,minimumStake,dailyCap,used,opensAt,epoch,decimals,day,dailyOpensAfter]=await Promise.all([
  rpc.send('eth_chainId',[]),rpc.send('eth_getStorageAt',[C.ledger,C.implSlot,tag]),rpc.send('eth_getStorageAt',[C.gate,C.implSlot,tag]),
  call(C.ledger,ledgerABI,'lgns',[],tag),call(C.ledger,ledgerABI,'lgnsBurnGate',[],tag),call(C.ledger,ledgerABI,'clock',[],tag),call(C.ledger,ledgerABI,'depositsOpen',[],tag),call(C.ledger,ledgerABI,'minimumLgns',[],tag),call(C.ledger,ledgerABI,'lgnsPowerRate',[],tag),
- call(C.gate,gateABI,'maximumLgns',[],tag),call(C.gate,gateABI,'minimumStake',[],tag),call(C.gate,gateABI,'dailyMaximumLgns',[],tag),call(C.gate,gateABI,'burnedLgnsToday',[],tag),call(C.gate,gateABI,'BURN_OPENS_AT',[],tag),call(C.clock,clockABI,'currentEpoch',[],tag),call(C.token,tokenABI,'decimals',[],tag),call(C.clock,clockABI,'currentDay',[],tag)]);
+ call(C.gate,gateABI,'maximumLgns',[],tag),call(C.gate,gateABI,'minimumStake',[],tag),call(C.gate,gateABI,'dailyMaximumLgns',[],tag),call(C.gate,gateABI,'burnedLgnsToday',[],tag),call(C.gate,gateABI,'BURN_OPENS_AT',[],tag),call(C.clock,clockABI,'currentEpoch',[],tag),call(C.token,tokenABI,'decimals',[],tag),call(C.clock,clockABI,'currentDay',[],tag),call(C.gate,gateABI,'DAILY_OPENS_AFTER',[],tag)]);
  if(Number(chain)!==C.chainId||!same('0x'+impl.slice(-40),C.ledgerImpl)||!same('0x'+gateImpl.slice(-40),C.gateImpl)||!same(token,C.token)||!same(gate,C.gate)||!same(clock,C.clock)||decimals!==9n)throw Error('合约已更新，请重新核对页面');
- const nextReset=Number(await call(C.clock,clockABI,'dayEnd',[day],tag));
+ const [start,end]=await Promise.all([call(C.clock,clockABI,'dayStart',[day],tag),call(C.clock,clockABI,'dayEnd',[day],tag)]);
+ const dayStart=Number(start),nextReset=Number(end),dailyOffset=Number(dailyOpensAfter),times=openingTimes(Number(block.timestamp),dayStart,nextReset,dailyOffset,Number(opensAt));
  let balance=0n,allowance=0n,stake=0n,burnEpoch=0n,gas=0n;
  if(who){const values=await Promise.all([call(C.token,tokenABI,'balanceOf',[who],tag),call(C.token,tokenABI,'allowance',[who,C.ledger],tag),call(C.gate,gateABI,'stakeOf',[who],tag),call(C.gate,gateABI,'burnEpochOf',[who],tag),rpc.send('eth_getBalance',[who,tag])]);[balance,allowance,stake,burnEpoch]=values;gas=BigInt(values[4]);}
  if(v!==version)return null;
- snapshot={timestamp:Number(block.timestamp),nextReset,open,minimum,rate,maximum,minimumStake,dailyCap,remaining:left(dailyCap,used),opensAt:Number(opensAt),epoch,balance,allowance,stake,burnEpoch,gas,fetched:Date.now()};
+ snapshot={timestamp:Number(block.timestamp),nextReset,dayStart,dailyOffset,...times,open,minimum,rate,maximum,minimumStake,dailyCap,remaining:left(dailyCap,used),opensAt:Number(opensAt),epoch,balance,allowance,stake,burnEpoch,gas,fetched:Date.now()};
  $('left').textContent=fmt(snapshot.remaining)+' 黑丝';$('cap').textContent='/ '+fmt(dailyCap);$('sync').textContent='已同步 · '+new Date().toLocaleTimeString('zh-CN',{hour12:false});
  const yes=available(snapshot,nInput());if(notifying&&yes&&!wasAvailable)ring();wasAvailable=yes;render();return snapshot;
  }catch(e){snapshot=null;$('sync').textContent='连接或合约检查失败';$('left').textContent='—';status(clean(e));render();throw e;}finally{inFlight=null;}})();return inFlight;}
